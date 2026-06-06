@@ -81,6 +81,10 @@ public:
     static std::vector<usb_device_handle::sptr> get_device_list(
         const std::vector<usb_device_handle::vid_pid_pair_t>& vid_pid_pair_list);
 
+    // Android: create device handle from fd + path, bypassing libusb enumeration
+    static std::vector<usb_device_handle::sptr> get_device_list(
+        uint16_t vid, uint16_t pid, int fd, const std::string& usbfs_path);
+
 
 }; // namespace usb
 

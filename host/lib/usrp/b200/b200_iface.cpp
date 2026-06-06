@@ -225,15 +225,34 @@ public:
         }
 
         ihex_reader file_reader(filestring);
+        size_t fw_records = 0;
+        uint32_t fw_jump_addr = 0;
         try {
-            file_reader.read(std::bind(&b200_iface_impl::fx3_control_write,
-                this,
-                FX3_FIRMWARE_LOAD,
-                std::placeholders::_1,
-                std::placeholders::_2,
-                std::placeholders::_3,
-                std::placeholders::_4,
-                0));
+            file_reader.read([this, &fw_records, &fw_jump_addr](uint16_t value,
+                                 uint16_t index,
+                                 unsigned char* data,
+                                 uint16_t length) -> int {
+                const int ret = this->fx3_control_write(
+                    FX3_FIRMWARE_LOAD, value, index, data, length, 0);
+                if (length == 0) {
+                    fw_jump_addr = (uint32_t(index) << 16) | value;
+                    UHD_LOGGER_INFO("B200") << "FX3 firmware jump address: 0x"
+                                           << std::hex << fw_jump_addr << std::dec
+                                           << " ret=" << ret;
+                    return ret;
+                }
+                fw_records++;
+                if (ret >= 0 && ret != length) {
+                    UHD_LOGGER_ERROR("B200") << "Short FX3 firmware write at 0x"
+                                            << std::hex
+                                            << ((uint32_t(index) << 16) | value)
+                                            << std::dec << ": expected " << length
+                                            << " wrote " << ret;
+                    return -1;
+                }
+                return ret;
+            });
+            UHD_LOGGER_INFO("B200") << "FX3 firmware records written: " << fw_records;
         } catch (const uhd::io_error& e) {
             throw uhd::io_error(
                 str(boost::format("Could not load firmware: \n%s") % e.what()));

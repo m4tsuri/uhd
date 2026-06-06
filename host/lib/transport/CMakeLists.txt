@@ -25,6 +25,9 @@ if(ENABLE_USB)
     include_directories(${LIBUSB_INCLUDE_DIRS})
     LIBUHD_APPEND_LIBS(${LIBUSB_LIBRARIES})
     LIBUHD_APPEND_SOURCES(
+        ${CMAKE_CURRENT_SOURCE_DIR}/android_usb_context.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/android_usbfs.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/android_usbfs.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/libusb1_control.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/libusb1_zero_copy.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/libusb1_base.cpp

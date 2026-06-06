@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 
+#include "android_usbfs.hpp"
 #include "libusb1_base.hpp"
 #include <uhd/transport/usb_control.hpp>
 #include <mutex>
@@ -64,6 +65,10 @@ libusb_control_impl::~libusb_control_impl(void)
  **********************************************************************/
 usb_control::sptr usb_control::make(usb_device_handle::sptr handle, const int interface)
 {
+    if (android_usbfs_device_handle::sptr android_handle =
+            android_usbfs_device_handle::from_usb_device_handle(handle)) {
+        return make_android_usbfs_control(android_handle, interface);
+    }
     return sptr(new libusb_control_impl(
         libusb::device_handle::get_cached_handle(
             std::static_pointer_cast<libusb::special_handle>(handle)->get_device()),

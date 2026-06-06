@@ -9,7 +9,7 @@
 
 #ifdef _WIN32
 #    include <windows.h>
-#elif defined(__OpenBSD__)
+#elif defined(__OpenBSD__) || defined(__ANDROID__)
 #    include <glob.h>
 #else
 #    include <wordexp.h>
@@ -29,7 +29,7 @@ std::string uhd::path_expandvars(const std::string& path)
         return path;
     }
     return std::string(result, result + result_len);
-#elif defined(__OpenBSD__)
+#elif defined(__OpenBSD__) || defined(__ANDROID__)
     glob_t p;
     std::string return_value;
     memset(&p, 0, sizeof(p));

@@ -6,11 +6,13 @@
 //
 
 #include "b200_impl.hpp"
+#include "../../transport/android_usbfs.hpp"
 #include "../../transport/libusb1_base.hpp"
 #include "b200_regs.hpp"
 #include <uhd/cal/database.hpp>
 #include <uhd/config.hpp>
 #include <uhd/exception.hpp>
+#include <uhd/transport/android_usb_context.hpp>
 #include <uhd/transport/usb_control.hpp>
 #include <uhd/types/metadata.hpp>
 #include <uhd/usrp/dboard_eeprom.hpp>
@@ -173,6 +175,12 @@ std::vector<usb_device_handle::sptr> get_b200_device_handles(const device_addr_t
     }
 
     // find the usrps and load firmware
+    if (const android_usb_context* ctx = get_android_usb_context()) {
+        uint16_t android_vid = ctx->vid() ? ctx->vid() : B200_VENDOR_ID;
+        uint16_t android_pid = ctx->pid() ? ctx->pid() : B200_PRODUCT_ID;
+        return usb_device_handle::get_device_list(
+            android_vid, android_pid, (int)ctx->fd(), ctx->usbfs_path());
+    }
     return usb_device_handle::get_device_list(vid_pid_pair_list);
 }
 
@@ -196,6 +204,16 @@ static device_addrs_t b200_find(const device_addr_t& hint)
     for (device_addr_t hint_i : separate_device_addr(hint)) {
         if (hint_i.has_key("addr") || hint_i.has_key("resource"))
             return b200_addrs;
+    }
+
+    const android_usb_context* android_ctx = get_android_usb_context();
+    if (android_ctx && android_ctx->firmware_loaded()) {
+        device_addr_t new_addr;
+        new_addr["type"]    = "b200";
+        new_addr["name"]    = "B200";
+        new_addr["product"] = "B200";
+        b200_addrs.push_back(new_addr);
+        return b200_addrs;
     }
 
     // Important note:
@@ -227,6 +245,10 @@ static device_addrs_t b200_find(const device_addr_t& hint)
         // check if fw was already loaded
         if (!(handle->firmware_loaded())) {
             b200_iface::make(control)->load_firmware(b200_fw_image);
+            if (get_android_usb_context()) {
+                UHD_LOGGER_INFO("B200") << "Android fd firmware load submitted; returning to app for USB re-enumeration";
+                return b200_addrs;
+            }
         }
 
         found++;
@@ -280,13 +302,22 @@ static device::sptr b200_make(const device_addr_t& device_addr)
         return device::sptr(new b200_impl(device_addr, handle));
     } catch (const uhd::usb_error&) {
         UHD_LOGGER_INFO("B200") << "Detected bad USB state; resetting.";
-        libusb::device_handle::sptr dev_handle(libusb::device_handle::get_cached_handle(
-            std::static_pointer_cast<libusb::special_handle>(handle)->get_device()));
-        dev_handle->clear_endpoints(
-            B200_USB_CTRL_RECV_ENDPOINT, B200_USB_CTRL_SEND_ENDPOINT);
-        dev_handle->clear_endpoints(
-            B200_USB_DATA_RECV_ENDPOINT, B200_USB_DATA_SEND_ENDPOINT);
-        dev_handle->reset_device();
+        if (android_usbfs_device_handle::sptr android_handle =
+                android_usbfs_device_handle::from_usb_device_handle(handle)) {
+            android_handle->clear_endpoints(
+                B200_USB_CTRL_RECV_ENDPOINT, B200_USB_CTRL_SEND_ENDPOINT);
+            android_handle->clear_endpoints(
+                B200_USB_DATA_RECV_ENDPOINT, B200_USB_DATA_SEND_ENDPOINT);
+            android_handle->reset_device();
+        } else {
+            libusb::device_handle::sptr dev_handle(libusb::device_handle::get_cached_handle(
+                std::static_pointer_cast<libusb::special_handle>(handle)->get_device()));
+            dev_handle->clear_endpoints(
+                B200_USB_CTRL_RECV_ENDPOINT, B200_USB_CTRL_SEND_ENDPOINT);
+            dev_handle->clear_endpoints(
+                B200_USB_DATA_RECV_ENDPOINT, B200_USB_DATA_SEND_ENDPOINT);
+            dev_handle->reset_device();
+        }
     }
 
     return device::sptr(new b200_impl(device_addr, handle));
@@ -375,21 +406,32 @@ b200_impl::b200_impl(
             usb_device_handle::vid_pid_pair_t(B200_VENDOR_NI_ID, B210_PRODUCT_NI_ID));
     }
 
-    std::vector<usb_device_handle::sptr> device_list =
-        usb_device_handle::get_device_list(vid_pid_pair_list);
+    std::vector<usb_device_handle::sptr> device_list;
+
+    if (const android_usb_context* ctx = get_android_usb_context()) {
+        // Android: use fd+path to create device handle (bypasses libusb enum)
+        device_list = usb_device_handle::get_device_list(
+            vid, pid, (int)ctx->fd(), ctx->usbfs_path());
+    } else {
+        device_list = usb_device_handle::get_device_list(vid_pid_pair_list);
+    }
 
     // locate the matching handle in the device list
-    for (usb_device_handle::sptr dev_handle : device_list) {
-        try {
-            if (dev_handle->get_serial() == device_addr["serial"]) {
-                handle = dev_handle;
-                break;
+    if (get_android_usb_context() && !device_list.empty() && !device_addr.has_key("serial")) {
+        handle = device_list.front();
+    } else {
+        for (usb_device_handle::sptr dev_handle : device_list) {
+            try {
+                if (dev_handle->get_serial() == device_addr["serial"]) {
+                    handle = dev_handle;
+                    break;
+                }
+            } catch (const uhd::exception&) {
+                continue;
             }
-        } catch (const uhd::exception&) {
-            continue;
         }
     }
-    UHD_ASSERT_THROW(handle.get() != NULL); // better be found
+    UHD_ASSERT_THROW(handle.get() != NULL);
 
     // create control objects
     usb_control::sptr control = usb_control::make(handle, 0);

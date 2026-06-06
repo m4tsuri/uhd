@@ -41,6 +41,9 @@ uint32_t get_host_id()
         sizeof(szFileSysName));
 
     return uint32_t(dwSerialNumber);
+#elif defined(__ANDROID__)
+    // Android Bionic lacks gethostid(); use getpid() as fallback
+    return uint32_t(getpid());
 #else
     return uint32_t(gethostid());
 #endif

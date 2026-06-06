@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 
+#include "android_usbfs.hpp"
 #include "libusb1_base.hpp"
 #include <uhd/exception.hpp>
 #include <uhd/transport/bounded_buffer.hpp>
@@ -470,6 +471,15 @@ usb_zero_copy::sptr usb_zero_copy::make(usb_device_handle::sptr handle,
     const unsigned char send_endpoint,
     const device_addr_t& hints)
 {
+    if (android_usbfs_device_handle::sptr android_handle =
+            android_usbfs_device_handle::from_usb_device_handle(handle)) {
+        return make_android_usbfs_zero_copy(android_handle,
+            recv_interface,
+            recv_endpoint,
+            send_interface,
+            send_endpoint,
+            hints);
+    }
     libusb::device_handle::sptr dev_handle(libusb::device_handle::get_cached_handle(
         std::static_pointer_cast<libusb::special_handle>(handle)->get_device()));
     return sptr(new libusb_zero_copy_impl(
